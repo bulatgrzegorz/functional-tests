@@ -76,7 +76,7 @@ app.MapPost("/api/orders", async (
     }
 
     await db.OpenAsync();
-    await using var cmd = new NpgsqlCommand("INSERT INTO orders (sku1, quantity) VALUES (@sku, @qty)", db);
+    await using var cmd = new NpgsqlCommand("INSERT INTO orders (sku, quantity) VALUES (@sku, @qty)", db);
     cmd.Parameters.AddWithValue("sku", request.Sku);
     cmd.Parameters.AddWithValue("qty", request.Quantity);
     await cmd.ExecuteNonQueryAsync();
