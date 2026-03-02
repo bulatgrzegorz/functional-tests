@@ -9,6 +9,7 @@ namespace Tests;
 public class ApiFixture : IAsyncInitializer, IAsyncDisposable
 {
   public ApiClient ApiClient() => new(_httpClientFactory());
+  public KafkaClient KafkaClient(string topic) => new(Kafka.BootstrapAddress, topic);
   // public DatabaseClient DatabaseClient() => new(_dbConnectionString!);
 
   public ExampleServiceStub Stub { get; private set; } = null!;
