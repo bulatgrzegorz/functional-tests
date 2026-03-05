@@ -9,14 +9,13 @@ namespace Tests;
 public class ApiFixture : IAsyncInitializer, IAsyncDisposable
 {
   public ApiClient ApiClient() => new(_httpClientFactory());
-  // public DatabaseClient DatabaseClient() => new(_dbConnectionString!);
+  public KafkaClient KafkaClient(string topic) => new(Kafka.BootstrapAddress, topic);
 
   public ExampleServiceStub Stub { get; private set; } = null!;
 
   private IAsyncDisposable? _app;
 
   private Func<HttpClient> _httpClientFactory = null!;
-  private string? _dbConnectionString;
   
   [ClassDataSource<DockerNetworkFixture>(Shared = SharedType.PerTestSession)]
   public required DockerNetworkFixture DockerNetwork { get; init; }
@@ -67,7 +66,6 @@ public class ApiFixture : IAsyncInitializer, IAsyncDisposable
       _app = app;
     }
 
-    _dbConnectionString = Postgresql.ConnectionString;
     Stub = new ExampleServiceStub(Wiremock);
     
     InstrumentationSuppress.Dispose();
