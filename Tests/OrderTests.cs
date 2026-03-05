@@ -1,5 +1,4 @@
 using System.Net;
-using Tests.Clients;
 
 namespace Tests;
 
@@ -15,8 +14,6 @@ public class OrderTests
 
     var sku = "SKU-001";
     await App.Stub.SetupInventory(sku, new InventoryResponse(50));
-    // Since we didn't setup WireMock to return a success, the external service
-    // will return 404 Not Found by default, causing our API to return 422.
     var response = await client.PostOrder("SKU-001", 100);
 
     await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
@@ -34,9 +31,11 @@ public class OrderTests
     var response = await client.PostOrder(sku, 25);
     await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
-    var messages = kafka.ConsumeForCurrentTrace(TimeSpan.FromSeconds(10));
+    var hasMessage = kafka.ConsumeForCurrentTrace(TimeSpan.FromSeconds(10), out var receivedMessage);
 
-    await Assert.That(messages).Count().IsGreaterThanOrEqualTo(1);
-    await Assert.That(messages[0]).Contains($"Order created for {sku}");
+    await Assert.That(hasMessage).IsTrue();
+    Assert.NotNull(receivedMessage);
+    await Assert.That(receivedMessage.Sku).IsEqualTo(sku);
+    await Assert.That(receivedMessage.Quantity).IsEqualTo(25);
   }
 }

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Npgsql;
 using Confluent.Kafka;
 using Confluent.Kafka.Extensions.Diagnostics;
@@ -49,7 +50,7 @@ builder.Services.AddTransient<NpgsqlConnection>(_ => new NpgsqlConnection(dbConn
 // Kafka
 var kafkaConnectionString = builder.Configuration.GetValue<string>("Kafka:ConnectionString");
 var producerConfig = new ProducerConfig { BootstrapServers = kafkaConnectionString };
-builder.Services.AddSingleton(new ProducerBuilder<Null, string>(producerConfig).BuildWithInstrumentation());
+builder.Services.AddSingleton(new ProducerBuilder<Null, OrderCreated>(producerConfig).SetValueSerializer(Json<OrderCreated>.Create()).BuildWithInstrumentation());
 
 // Configure HttpClient for SomeService
 var someServiceUrl = builder.Configuration.GetValue<string>("SomeService:BaseUrl")!;
@@ -65,7 +66,7 @@ app.Lifetime.ApplicationStopping.Register(() =>
 app.MapPost("/api/orders", async (
     [FromBody] CreateOrderRequest request,
     [FromServices] NpgsqlConnection db,
-    [FromServices] IProducer<Null, string> kafka,
+    [FromServices] IProducer<Null, OrderCreated> kafka,
     [FromServices] IHttpClientFactory httpClientFactory) =>
 {
     var client = httpClientFactory.CreateClient("SomeService");
@@ -81,10 +82,7 @@ app.MapPost("/api/orders", async (
     cmd.Parameters.AddWithValue("qty", request.Quantity);
     await cmd.ExecuteNonQueryAsync();
     
-    await kafka.ProduceAsync("orders-topic", new Message<Null, string>
-    {
-        Value = $"Order created for {request.Sku}"
-    });
+    await kafka.ProduceAsync("orders-topic", new Message<Null, OrderCreated>(){Value = new OrderCreated(request.Sku, request.Quantity)});
 
     return Results.Ok(new CreateOrderResponse("Order created"));
 });
@@ -94,5 +92,13 @@ app.Run();
 public record CreateOrderRequest(string Sku, int Quantity);
 public record CreateOrderResponse(string Message);
 public record InventoryResponse(int Inventory);
+public record OrderCreated(string Sku, int Quantity);
+
+public class Json<T> : ISerializer<T>, IDeserializer<T>
+{
+    public static Json<T> Create() => new();
+    public byte[] Serialize(T data, SerializationContext context) => JsonSerializer.SerializeToUtf8Bytes(data);
+    public T Deserialize(ReadOnlySpan<byte> data, bool isNull, SerializationContext context) => JsonSerializer.Deserialize<T>(data)!;
+}
 
 public partial class Program { }

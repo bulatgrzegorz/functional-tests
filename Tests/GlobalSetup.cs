@@ -48,7 +48,7 @@ public static class GlobalHooks
     [BeforeEvery(Test)]
     public static void BeforeEveryTest()
     {
-        var activity = TestActivitySource.StartActivity(TestContext.Current!.Metadata.TestName);
+        _ = TestActivitySource.StartActivity(TestContext.Current!.Metadata.TestName);
         TestContext.Current.AddAsyncLocalValues();
     }
 

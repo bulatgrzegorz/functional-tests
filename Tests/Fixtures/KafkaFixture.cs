@@ -1,5 +1,4 @@
 using Testcontainers.Kafka;
-using TUnit.Core.Interfaces;
 
 namespace Tests.Fixtures;
 
