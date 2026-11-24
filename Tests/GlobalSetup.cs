@@ -1,85 +1,36 @@
-using System.Diagnostics;
-using OpenTelemetry;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Trace;
+using Tests.Fixtures;
 
 namespace Tests;
 
 public static class GlobalHooks
 {
-    private static ActivityListener _activityListener = null!;
-    private static readonly ActivitySource TestActivitySource = new("TestActivitySource");
-    private static TracerProviderBuilder _tracingBuilder = null!;
-    private static TracerProvider _tracerProvider = null!;
-
-    public static void SetupOtlpExporter(string address)
+    [Before(TestDiscovery)]
+    public static void BeforeTestDiscovery()
     {
-        _tracerProvider = _tracingBuilder.AddOtlpExporter(opt =>
-        {
-            opt.Endpoint = new Uri(address);
-            opt.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-        }).Build();
-    }
-    
-    [Before(TestSession)]
-    public static void BeforeTestSession()
-    {
-        _tracingBuilder = Sdk.CreateTracerProviderBuilder()
-            .ConfigureResource(r => r.AddService("functional-tests")) //helpful in aspire
-            .AddHttpClientInstrumentation()
-            .AddSource(TestActivitySource.Name);
-        
-        _activityListener = new ActivityListener
-        {
-            ShouldListenTo = _ => true,
-            Sample = (ref _) => ActivitySamplingResult.AllDataAndRecorded
-        };
-        
-        ActivitySource.AddActivityListener(_activityListener);
-    }
-
-    [After(TestSession)]
-    public static void AfterTestSession()
-    {
-        _tracerProvider?.ForceFlush();
-        _tracerProvider?.Dispose();
+        // TUnit.OpenTelemetry (via TUnit.Aspire) exports the runner's spans (TUnit, TUnit.Lifecycle, HttpClient) here,
+        // and TUnit.Aspire forwards the API's telemetry here too. Both read it as http/protobuf despite the name,
+        // and right after this hook, so it has to be known before the dashboard container starts.
+        Environment.SetEnvironmentVariable("DOTNET_DASHBOARD_OTLP_ENDPOINT_URL", AspireDashboardFixture.OtlpHttpEndpoint);
+        Environment.SetEnvironmentVariable("OTEL_SERVICE_NAME", "functional-tests");
+        // TUnit's HTML report listens to every ActivitySource, which makes the auto-start step aside without this
+        Environment.SetEnvironmentVariable("TUNIT_OTEL_AUTOSTART", "1");
     }
 
     [BeforeEvery(Test)]
     public static void BeforeEveryTest()
     {
-        _ = TestActivitySource.StartActivity(TestContext.Current!.Metadata.TestName);
-        TestContext.Current.AddAsyncLocalValues();
+        // trace list in Aspire shows the root span name - make it the test name instead of TUnit's generic "test case"
+        var testCase = TestContext.Current!.Activity;
+        testCase?.DisplayName = TestContext.Current.Metadata.TestName;
+        // TUnit opens the span before waiting for shared fixtures (their setup is in the session trace as
+        // "initialize ...") - start it once they're ready, so the test's trace shows only the test
+        testCase?.SetStartTime(DateTime.UtcNow);
     }
 
     [AfterEvery(Test)]
     public static void AfterEveryTest()
     {
-        var currentContext = TestContext.Current!;
-        var currentActivity = Activity.Current;
-
-        if (currentActivity is not null)
-        {
-            var activityStatus = currentContext.Execution.Result?.State switch
-            {
-                TestState.Passed => ActivityStatusCode.Ok,
-                TestState.Failed or TestState.Timeout or TestState.Cancelled => ActivityStatusCode.Error,
-                TestState.Skipped => ActivityStatusCode.Unset,
-                _ => throw new ArgumentOutOfRangeException()
-            };
-            
-            currentActivity.SetStatus(activityStatus, currentContext.Execution.Result?.State.ToString());
-
-            if (currentContext.Execution.Result?.OriginalException is { } originalException)
-            {
-                currentActivity.AddException(originalException);
-            }
-            else if (currentContext.Execution.Result?.Exception is { } exception)
-            {
-                currentActivity.AddException(exception);
-            }
-        }
-        
-        Activity.Current?.Dispose();
+        // ...and end it before the last test to finish disposes the shared fixtures (Stop keeps an end time set here)
+        TestContext.Current!.Activity?.SetEndTime(DateTime.UtcNow);
     }
 }

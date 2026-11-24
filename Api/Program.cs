@@ -3,45 +3,29 @@ using Npgsql;
 using Confluent.Kafka;
 using Confluent.Kafka.Extensions.Diagnostics;
 using Confluent.Kafka.Extensions.OpenTelemetry;
+using OpenTelemetry;
 using OpenTelemetry.Trace;
-using OpenTelemetry.Resources;
-using OpenTelemetry.Logs;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add OpenTelemetry
-builder.Services.AddOpenTelemetry()
-    .ConfigureResource(r => r.AddService("Api"))
+// Add OpenTelemetry - endpoint, protocol and service name come from OTEL_* (set by Aspire, or by the tests)
+var openTelemetry = builder.Services.AddOpenTelemetry()
     .WithTracing(tracing =>
     {
         tracing.AddAspNetCoreInstrumentation();
         tracing.AddHttpClientInstrumentation();
         tracing.AddConfluentKafkaInstrumentation();
         tracing.AddNpgsql();
-        
-        var otlpEndpoint = builder.Configuration.GetValue<string>("OTEL_EXPORTER_OTLP_ENDPOINT");
-        if (!string.IsNullOrEmpty(otlpEndpoint))
-        {
-            tracing.AddOtlpExporter(opt => 
-            {
-                opt.Endpoint = new Uri(otlpEndpoint);
-                opt.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-            });
-        }
     })
-    .WithLogging(logging =>
-    {
-        var otlpEndpoint = builder.Configuration.GetValue<string>("OTEL_EXPORTER_OTLP_ENDPOINT");
-        if (!string.IsNullOrEmpty(otlpEndpoint))
-        {
-            logging.AddOtlpExporter(opt => 
-            {
-                opt.Endpoint = new Uri(otlpEndpoint);
-                opt.Protocol = OpenTelemetry.Exporter.OtlpExportProtocol.Grpc;
-            });
-        }
-    });
+    .WithLogging();
+
+if (!string.IsNullOrEmpty(builder.Configuration.GetValue<string>("OTEL_EXPORTER_OTLP_ENDPOINT")))
+{
+    openTelemetry.UseOtlpExporter();
+}
+
+builder.Services.AddHealthChecks();
 
 // Postgres
 var dbConnectionString = builder.Configuration.GetConnectionString("Database");
@@ -63,6 +47,8 @@ app.Lifetime.ApplicationStopping.Register(() =>
     app.Services.GetService<TracerProvider>()?.Dispose();
 });
 
+app.MapHealthChecks("/health");
+
 app.MapPost("/api/orders", async (
     [FromBody] CreateOrderRequest request,
     [FromServices] NpgsqlConnection db,
@@ -71,7 +57,7 @@ app.MapPost("/api/orders", async (
 {
     var client = httpClientFactory.CreateClient("SomeService");
     var response = await client.GetFromJsonAsync<InventoryResponse>($"/inventory/{request.Sku}");
-    if (response is null || response.Inventory > request.Quantity) 
+    if (response is null || response.Inventory < request.Quantity)
     {
         return Results.UnprocessableEntity(new { Error = "Insufficient inventory" });
     }

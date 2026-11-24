@@ -9,17 +9,14 @@ namespace Tests.Fixtures;
 
 public class WireMockFixture : FixtureBase
 {
-    [ClassDataSource<DockerNetworkFixture>(Shared = SharedType.PerTestSession)]
-    public required DockerNetworkFixture DockerNetwork { get; init; }
-    
     private WireMockContainer _container = null!;
-    public string Url => TestsConfiguration.LocalMode ? _container.GetPublicUrl().TrimEnd('/') : "http://wiremock:80";
+    public string Url => _container.GetPublicUrl().TrimEnd('/');
+    // Containers on Aspire's network reach the host-published port through the Docker host alias.
+    public string UrlForContainers => new UriBuilder(Url) { Host = "host.docker.internal" }.Uri.ToString().TrimEnd('/');
+
     protected override async Task Initialize()
     {
-        _container = new WireMockContainerBuilder()
-            .WithNetwork(DockerNetwork.Network)
-            .WithNetworkAliases("wiremock")
-            .Build();
+        _container = new WireMockContainerBuilder().Build();
         await _container.StartAsync();
     }
     

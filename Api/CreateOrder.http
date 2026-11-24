@@ -1,0 +1,6 @@
+### GET request to example server
+POST http://localhost:5160/api/orders
+Content-Type: application/json
+
+{ "Sku" : "some-test", "Quantity": 5 }
+###

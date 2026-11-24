@@ -16,7 +16,7 @@ public class OrderTests
     await App.Stub.SetupInventory(sku, new InventoryResponse(50));
     var response = await client.PostOrder("SKU-001", 100);
 
-    await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.UnprocessableEntity);
   }
 
   [Test]
@@ -26,7 +26,7 @@ public class OrderTests
     using var kafka = App.KafkaClient("orders-topic");
 
     var sku = "SKU-KAFKA-001";
-    await App.Stub.SetupInventory(sku, new InventoryResponse(10));
+    await App.Stub.SetupInventory(sku, new InventoryResponse(100));
 
     var response = await client.PostOrder(sku, 25);
     await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);

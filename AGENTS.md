@@ -5,8 +5,9 @@ This file provides agentic coding agents with essential information about buildi
 ## Build & Test Commands
 
 ### .NET / MSBuild Setup
-- **.NET SDK Version**: net10.0 (see `global.json`)
-- **Test Framework**: TUnit with TestContainers for real infrastructure (PostgreSQL, Kafka, WireMock)
+- **.NET SDK Version**: net11.0
+- **Test Framework**: TUnit + TUnit.Aspire on top of the Aspire AppHost (PostgreSQL, Kafka); Testcontainers for WireMock and the dashboard
+- **Aspire**: 17.0 — the AppHost needs the matching Aspire CLI installed (DCP and dashboard come from the CLI bundle)
 - **Test Runner**: Microsoft.Testing.Platform
 
 ### Running Tests
@@ -23,8 +24,11 @@ dotnet test Tests/Tests.csproj --filter "Tests.OrderTests.Should_RejectOrder_Whe
 # Run with verbose output
 dotnet test Tests/Tests.csproj -v detailed
 
-# Run with OpenTelemetry tracing (when UseAspire=true, Aspire Dashboard accessible at logged port)
-dotnet test Tests/Tests.csproj
+# Choose where the API runs: Aspire (default) | InProcess (debugging) | Container (CI, published image)
+TESTS_API_HOST=Container dotnet test Tests/Tests.csproj
+
+# Run the app itself (SomeService stand-in as the third party; set Parameters:some-service-url for a real one)
+aspire run --apphost AppHost/AppHost.csproj
 ```
 
 ### Building
@@ -68,7 +72,7 @@ dotnet build Tests/Tests.csproj
 
 ### Naming Conventions
 - **Test Methods**: `Should_<Expected>_When_<Condition>()` (e.g., `Should_RejectOrder_When_InventoryIsInsufficient`)
-- **Fixtures**: Suffix with `Fixture` (e.g., `ApiFixture`, `PostgresqlFixture`)
+- **Fixtures**: Suffix with `Fixture` (e.g., `ApiFixture`, `WireMockFixture`)
 - **Stubs**: Suffix with `Stub` (e.g., `ExampleServiceStub`)
 - **Clients**: Suffix with `Client` (e.g., `ApiClient`)
 - **Configuration**: Singleton/static classes for configuration (e.g., `TestsConfiguration`)
@@ -85,45 +89,48 @@ dotnet build Tests/Tests.csproj
 
 ### Testing Patterns
 - **Arrange-Act-Assert**: Structure tests clearly with these sections
-- **Per-Test Isolation**: Each test gets isolated traces via unique Activity per test
+- **Per-Test Isolation**: TUnit opens a `test case` span per test, each in its own trace
 - **Shared Infrastructure**: Leverage PerTestSession sharing to reuse containers across tests
 - **Stubs & Mocks**: Use WireMock for external service stubbing; trace-scoped via `traceparent` header
 - Use **TUnit assertions**: `await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK)`
 
 ### OpenTelemetry & Observability
-- Configure **ActivitySource** per logical component (TestActivitySource, service name "functional-tests")
+- Test-side spans (`TUnit`, `TUnit.Lifecycle`, HttpClient) are exported by `TUnit.OpenTelemetry` (via TUnit.Aspire) as "functional-tests"; `GlobalSetup.cs` only points it at the dashboard (`DOTNET_DASHBOARD_OTLP_ENDPOINT_URL`, fixed ports) - don't build a TracerProvider or create per-test activities by hand
 - Add instrumentation for: AspNetCore, Http, Kafka, Npgsql
-- Export traces to OTLP endpoint (grpc protocol) when configured
-- Always set **Activity status** in after-hooks based on test result
-- Use **AddAsyncLocalValues()** to propagate context across async boundaries
+- The API takes OTLP endpoint/protocol/service name from `OTEL_*` env (`UseOtlpExporter()`); never hard-code them - Aspire and TUnit.Aspire set them per host
+- TUnit sets test span status and records exceptions itself; hooks run inside their own spans, so `Activity.Current` in a hook is the hook span
+- In-process API stays on `WebApplicationFactory<T>` + `TelemetryHandler` for trace propagation (TUnit 1.83's `TestWebApplicationFactory<T>` hung when parallel tests made their first call together)
 
 ### Module Organization
-- **Api/**: Minimal .NET API with POST `/api/orders` endpoint
-  - Orchestrates PostgreSQL, Kafka, external service calls
-  - Configure via environment variables (ConnectionStrings__*, Kafka__*, SomeService__*)
-- **Tests/**: Functional test suite with real infrastructure
-  - `ApiFixture.cs`: Main orchestrator for all fixtures and HTTP client factory
-  - `Fixtures/`: Individual container fixtures (Postgres, Kafka, WireMock, Aspire, Docker Network)
+- **AppHost/**: Aspire AppHost - the single source of truth for the system
+  - PostgreSQL + `ordersdb` (schema in `Database/orders.sql`), Kafka (+ `orders-topic` created on ResourceReady)
+  - Third-party APIs as `AddExternalService(name, <url parameter>)` when the URL is configured, otherwise a local stand-in project (`SomeService/`) - tests always configure the URL
+  - Binds resources to the API's config keys (`ConnectionStrings__Database`, `Kafka__ConnectionString`, `SomeService__BaseUrl`)
+- **Api/**: Minimal .NET API with POST `/api/orders` and `/health`
+- **Tests/**: Functional test suite, an overlay on the AppHost
+  - `ApiFixture.cs`: `AspireFixture<AppHost>` - only what differs in a test: fakes for every external service, dashboard OTLP, API host
+  - `Fixtures/ApiHosts.cs`: re-hosts the AppHost's `api` in-process or as a container by replaying its environment callbacks
+  - `Fixtures/`: WireMock and dashboard containers, `LocalAppFixture` (WebApplicationFactory), `TestsConfiguration`
   - `Clients/`: Typed HTTP clients for the API under test
   - `Stubs/`: Domain-specific WireMock stub builders
-  - `GlobalSetup.cs`: TUnit hooks for OpenTelemetry lifecycle management
+  - `GlobalSetup.cs`: TUnit hooks - telemetry endpoint before discovery, test span naming/trimming
 
 ## Key Testing Architecture
 
 ### Infrastructure Management
-- **Testcontainers** manage real PostgreSQL, Kafka, WireMock, and Aspire Dashboard containers
-- **Docker Network** fixture ensures all containers can communicate
-- **LocalMode** vs **ContainerMode**: LocalMode uses WebApplicationFactory for faster iteration; ContainerMode runs API in Docker
+- **Aspire** (via the AppHost) runs PostgreSQL, Kafka and the API; change infrastructure in `AppHost.cs`, not in the tests
+- **Testcontainers** run what the tests own: WireMock (fakes for third parties) and the reused Aspire Dashboard
+- **API hosts** (`TESTS_API_HOST`): `Aspire` launched like `aspire run`; `InProcess` via WebApplicationFactory; `Container` as the published image on Aspire's network
+- A new `AddExternalService` in the AppHost needs a fake in `ApiFixture.Fakes` (keyed by its URL parameter, passed as AppHost args), otherwise the test session fails fast
 
 ### Parallel Test Isolation
-- Each test creates isolated OpenTelemetry Activity with unique trace context
+- Each test runs in its own trace (TUnit `test case` span)
 - WireMock stubs are scoped by `traceparent` header to prevent cross-test interference
 - Fixtures use `Shared = SharedType.PerTestSession` to reuse expensive infrastructure
 
 ### Configuration
-- Set feature flags in `TestsConfiguration.cs`: `UseAspire`, `LocalMode`
-- Pass variables to app via environment: `Dictionary<string, string>` → app initialization
-- OTLP endpoint, database connection, Kafka, external service URL all configurable
+- `TESTS_API_HOST` env var selects the API host (see `TestsConfiguration.cs`)
+- The API's configuration always comes from the AppHost model; tests only pass parameters (`--Parameters:<external>-url` as AppHost args) and `ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL`
 
 ---
 
