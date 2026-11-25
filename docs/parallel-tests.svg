@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 970 676" width="970" height="676" role="img" aria-labelledby="title desc">
+<title id="title">Two tests at the same time, each in its own trace</title>
+<desc id="desc">Test A (blue, trace 4bf9) and test B (orange, trace 7c1e) run in parallel against one Api, WireMock, PostgreSQL and Kafka. Both stub the same inventory URL with different stock and each gets its own answer: A gets 100 and its order is created, B gets 50 and is rejected with 422. Test A then reads only the Kafka message carrying its trace.</desc>
+<style>
+  svg { --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --box:#f6f8fa; --a:#0969da; --b:#bc4c00; }
+  @media (prefers-color-scheme: dark) {
+    svg { --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --box:#151b23; --a:#4493f8; --b:#db6d28; }
+  }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; fill: var(--fg); }
+  .card { fill: var(--bg); stroke: var(--line); }
+  .group { font-size: 11px; fill: var(--muted); letter-spacing: .02em; }
+  .bracket { stroke: var(--line); stroke-width: 1; fill: none; }
+  .head { fill: var(--box); stroke: var(--line); stroke-width: 1.2; }
+  .head.a { stroke: var(--a); stroke-width: 2; } .head.b { stroke: var(--b); stroke-width: 2; }
+  .title { font-size: 14px; font-weight: 600; } .title.a { fill: var(--a); } .title.b { fill: var(--b); }
+  .sub { font-size: 11px; fill: var(--muted); }
+  .life { stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 4 4; }
+  .msg { stroke-width: 2; fill: none; } .msg.a { stroke: var(--a); } .msg.b { stroke: var(--b); }
+  .reply { stroke-dasharray: 6 4; }
+  .label { font-size: 12px; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; }
+  .label.a { fill: var(--a); } .label.b { fill: var(--b); }
+  .tip-a { fill: var(--a); } .tip-b { fill: var(--b); }
+</style>
+<defs>
+  <marker id="tip-a" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="tip-a" d="M0,0 L10,5 L0,10 z"/></marker>
+  <marker id="tip-b" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="tip-b" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<rect class="card" x="0.5" y="0.5" width="969" height="675" rx="8"/>
+<text class="group" x="160.0" y="24" text-anchor="middle">dotnet test · TUnit</text>
+<path class="bracket" d="M30,36 V31 H290 V36"/>
+<text class="group" x="390.0" y="24" text-anchor="middle">Testcontainers</text>
+<path class="bracket" d="M330,36 V31 H450 V36"/>
+<text class="group" x="730.0" y="24" text-anchor="middle">AppHost.cs · Aspire</text>
+<path class="bracket" d="M520,36 V31 H940 V36"/>
+<line class="life" x1="90" y1="92" x2="90" y2="652"/>
+<rect class="head a" x="30" y="44" width="120" height="48" rx="6"/>
+<text class="title a" x="90" y="64" text-anchor="middle">test A</text>
+<text class="sub" x="90" y="81" text-anchor="middle">trace 4bf9</text>
+<line class="life" x1="230" y1="92" x2="230" y2="652"/>
+<rect class="head b" x="170" y="44" width="120" height="48" rx="6"/>
+<text class="title b" x="230" y="64" text-anchor="middle">test B</text>
+<text class="sub" x="230" y="81" text-anchor="middle">trace 7c1e</text>
+<line class="life" x1="390" y1="92" x2="390" y2="652"/>
+<rect class="head" x="330" y="44" width="120" height="48" rx="6"/>
+<text class="title" x="390" y="64" text-anchor="middle">WireMock</text>
+<text class="sub" x="390" y="81" text-anchor="middle">fake inventory</text>
+<line class="life" x1="580" y1="92" x2="580" y2="652"/>
+<rect class="head" x="520" y="44" width="120" height="48" rx="6"/>
+<text class="title" x="580" y="73" text-anchor="middle">Api</text>
+<line class="life" x1="740" y1="92" x2="740" y2="652"/>
+<rect class="head" x="680" y="44" width="120" height="48" rx="6"/>
+<text class="title" x="740" y="73" text-anchor="middle">PostgreSQL</text>
+<line class="life" x1="880" y1="92" x2="880" y2="652"/>
+<rect class="head" x="820" y="44" width="120" height="48" rx="6"/>
+<text class="title" x="880" y="64" text-anchor="middle">Kafka</text>
+<text class="sub" x="880" y="81" text-anchor="middle">orders-topic</text>
+<line class="msg a" x1="90" y1="134" x2="387" y2="134" marker-end="url(#tip-a)"/>
+<text class="label a" x="240.0" y="127" text-anchor="middle">stub: 100 in stock</text>
+<line class="msg b" x1="230" y1="172" x2="387" y2="172" marker-end="url(#tip-b)"/>
+<text class="label b" x="310.0" y="165" text-anchor="middle">stub: 50 in stock</text>
+<line class="msg a" x1="90" y1="210" x2="577" y2="210" marker-end="url(#tip-a)"/>
+<text class="label a" x="335.0" y="203" text-anchor="middle">order 25</text>
+<line class="msg b" x1="230" y1="248" x2="577" y2="248" marker-end="url(#tip-b)"/>
+<text class="label b" x="405.0" y="241" text-anchor="middle">order 100</text>
+<line class="msg a" x1="580" y1="286" x2="393" y2="286" marker-end="url(#tip-a)"/>
+<text class="label a" x="485.0" y="279" text-anchor="middle">stock?</text>
+<line class="msg b" x1="580" y1="324" x2="393" y2="324" marker-end="url(#tip-b)"/>
+<text class="label b" x="485.0" y="317" text-anchor="middle">stock?</text>
+<line class="msg a reply" x1="390" y1="362" x2="577" y2="362" marker-end="url(#tip-a)"/>
+<text class="label a" x="485.0" y="355" text-anchor="middle">100</text>
+<line class="msg b reply" x1="390" y1="400" x2="577" y2="400" marker-end="url(#tip-b)"/>
+<text class="label b" x="485.0" y="393" text-anchor="middle">50</text>
+<line class="msg a" x1="580" y1="438" x2="737" y2="438" marker-end="url(#tip-a)"/>
+<text class="label a" x="660.0" y="431" text-anchor="middle">save</text>
+<line class="msg b reply" x1="580" y1="476" x2="233" y2="476" marker-end="url(#tip-b)"/>
+<text class="label b" x="405.0" y="469" text-anchor="middle">422</text>
+<line class="msg a" x1="580" y1="514" x2="877" y2="514" marker-end="url(#tip-a)"/>
+<text class="label a" x="730.0" y="507" text-anchor="middle">OrderCreated</text>
+<line class="msg a reply" x1="580" y1="552" x2="93" y2="552" marker-end="url(#tip-a)"/>
+<text class="label a" x="335.0" y="545" text-anchor="middle">200</text>
+<line class="msg a" x1="90" y1="590" x2="877" y2="590" marker-end="url(#tip-a)"/>
+<text class="label a" x="485.0" y="583" text-anchor="middle">read</text>
+<line class="msg a reply" x1="880" y1="628" x2="93" y2="628" marker-end="url(#tip-a)"/>
+<text class="label a" x="485.0" y="621" text-anchor="middle">only mine</text>
+</svg>

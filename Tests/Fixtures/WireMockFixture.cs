@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
-using TUnit.Core.Interfaces;
 using WireMock.Admin.Mappings;
 using WireMock.Net.Testcontainers;
 

@@ -23,7 +23,9 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
   [ClassDataSource<WireMockFixture>(Shared = SharedType.PerTestSession)]
   public required WireMockFixture Wiremock { get; init; }
 
-  public ExampleServiceStub Stub => field ??= new(Wiremock);
+  [ClassDataSource<ExampleServiceStub>(Shared = SharedType.PerTestSession)]
+  public required ExampleServiceStub Stub { get; init; }
+
   public ApiClient ApiClient() => new(_createHttpClient());
   public KafkaClient KafkaClient(string topic) => new(_kafkaBootstrapServers, topic);
 
@@ -38,21 +40,17 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
   // In-process and container hosts replace the AppHost's project (TUnit also drops its children and edges to it).
   protected override IEnumerable<string> ResourcesToRemove() => Mode == ApiHost.Aspire ? [] : ["api"];
 
-  // 1. Every third party is a stub this session controls. Their URLs go in as args: the AppHost reads them up front
-  //    to decide between the external service and its local stand-in.
-  private IEnumerable<ExternalServiceStub> Stubs => [Stub];
-
-  protected override string[] Args => [.. Stubs.Select(stub => $"--Parameters:{stub.UrlParameter}={stub.UrlFor(Mode)}")];
-
   protected override void ConfigureBuilder(IDistributedApplicationTestingBuilder builder)
   {
-    // Fail fast instead of letting tests call a real third party (e.g. a URL from user secrets) or a stand-in.
-    var urlParameters = builder.Resources.OfType<ExternalServiceResource>().Select(e => e.UrlParameter?.Name ?? e.Name).ToList();
-    var stubbed = Stubs.Select(stub => stub.UrlParameter).ToList();
-    if (urlParameters.Except(stubbed).ToList() is [_, ..] unstubbed)
-      throw new InvalidOperationException($"No stub in {nameof(ApiFixture)}.{nameof(Stubs)} for: {string.Join(", ", unstubbed)}.");
-    if (stubbed.Except(urlParameters).ToList() is [_, ..] unused)
-      throw new InvalidOperationException($"The AppHost declares no external service for: {string.Join(", ", unused)}.");
+    // 1. Every third party the AppHost declares resolves to WireMock, whatever the configuration says (e.g. a stage
+    //    URL in user secrets). Parameters are read lazily, so setting them here is in time.
+    var fake = Mode == ApiHost.Container ? Wiremock.UrlForContainers : Wiremock.Url;
+    foreach (var external in builder.Resources.OfType<ExternalServiceResource>())
+    {
+      var parameter = external.UrlParameter
+        ?? throw new InvalidOperationException($"External service '{external.Name}' has a fixed URL the tests can't fake; give it a URL parameter.");
+      builder.Configuration[$"Parameters:{parameter.Name}"] = fake;
+    }
 
     // 2. Where Aspire points the API's OTLP exporter (in-process and container hosts export straight there).
     builder.Configuration["ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL"] = AspireDashboardFixture.OtlpGrpcEndpoint;

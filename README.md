@@ -6,28 +6,7 @@ A small .NET order API with PostgreSQL, Kafka and a third-party HTTP service, pl
 
 Companion repository for the blog post **[Complete Guide to Functional Tests](https://bulatgrzegorz.github.io/complete-guide-to-functional-tests/)**.
 
-```mermaid
-flowchart LR
-  subgraph session["dotnet test (TUnit)"]
-    a["test A"]
-    b["test B"]
-  end
-  subgraph system["AppHost.cs (Aspire)"]
-    api["Api"]
-    pg[("PostgreSQL")]
-    kafka[["Kafka<br/>orders-topic"]]
-  end
-  subgraph owned["owned by the tests (Testcontainers)"]
-    wm["WireMock<br/>fake inventory"]
-    dash["Aspire Dashboard<br/>localhost:18888"]
-  end
-  a & b -->|"POST /api/orders"| api
-  api -->|"GET /inventory/{sku}"| wm
-  api -->|"INSERT"| pg
-  api -->|"OrderCreated"| kafka
-  kafka -.->|"only my messages"| a
-  a & b & api -.->|"traces"| dash
-```
+![Test A (blue, trace 4bf9) and test B (orange, trace 7c1e) run at the same time against one Api, WireMock, PostgreSQL and Kafka. Both stub the same inventory URL with different stock and each gets only its own answer: A's order is created, B's is rejected with 422, and A reads only the Kafka message carrying its trace.](docs/parallel-tests.svg)
 
 ---
 
@@ -51,7 +30,15 @@ dotnet run --project AppHost   # or: aspire run --apphost AppHost/AppHost.csproj
 # then send Api/CreateOrder.http → POST http://localhost:5160/api/orders
 ```
 
-Here the inventory service is a small stand-in (`SomeService/`). It reports 100 for `SKU-001`, 0 for `SKU-002` and 5 for anything else.
+Or run the API as a container next to PostgreSQL and Kafka, like docker-compose:
+
+```console
+dotnet run --project AppHost -- --ApiContainer true   # or: aspire run --apphost AppHost/AppHost.csproj -- --ApiContainer true
+```
+
+On every run the AppHost first builds the image (`dotnet publish -t:PublishContainer`, no Dockerfile needed) and then starts it on the same `localhost:5160`. If you have a Dockerfile, replace the body of `ApiContainer()` in `AppHost.cs` with `builder.AddDockerfile("api", "../Api")`.
+
+The inventory service is a third party, so the API only knows its URL (`Parameters:some-service-url`). In a real API that is a test or stage environment. Here it points at `SomeService/`, a small example service the AppHost also starts, so `aspire run` works on a laptop. It reports 100 for `SKU-001`, 0 for `SKU-002` and 5 for anything else.
 
 ---
 
@@ -83,12 +70,19 @@ flowchart LR
 var ordersDb = builder.AddPostgres("postgres").WithInitFiles("./Database").AddDatabase("ordersdb");
 var kafka    = builder.AddKafka("kafka");   // + creates orders-topic once ready
 
-var api = builder.AddDotnetProject("api", "../Api/Api.csproj")
-    .WithReference(ordersDb, "Database").WaitFor(ordersDb)
-    .WithEnvironment("Kafka__ConnectionString", kafka).WaitFor(kafka);
+// The third party is just a URL, set per environment (Parameters:some-service-url).
+var someService = builder.AddExternalService("some-service", builder.AddParameter("some-service-url"));
 
-// The third party is just a URL. If none is configured, a local stand-in runs instead.
-api.WithEnvironment("SomeService__BaseUrl", builder.AddExternalService("some-service", builder.AddParameter("some-service-url")));
+// The API: a project, or its image with --ApiContainer true. Wire gives it the same connections either way.
+Wire(builder.AddDotnetProject("api", "../Api/Api.csproj").WithEnvironment("Kafka__ConnectionString", kafka));
+
+void Wire<T>(IResourceBuilder<T> api) => api
+    .WithReference(ordersDb, "Database").WaitFor(ordersDb)
+    .WaitFor(kafka)
+    .WithEnvironment("SomeService__BaseUrl", someService);
+
+// Example only: a third party for `aspire run` to call (appsettings.json points some-service-url at it).
+builder.AddDotnetProject("some-service-example", "../SomeService/SomeService.csproj");
 ```
 
 The tests don't rebuild any of this. `ApiFixture` only says **what is different in a test**:
@@ -96,10 +90,15 @@ The tests don't rebuild any of this. `ApiFixture` only says **what is different 
 ```csharp
 // Tests/ApiFixture.cs (trimmed)
 public class ApiFixture : AspireFixture<AppHost> {
-  // every third party → a WireMock stub this test session controls
-  public ExampleServiceStub Stub => field ??= new(Wiremock);
-  private IEnumerable<ExternalServiceStub> Stubs => [Stub];
-  protected override string[] Args => [.. Stubs.Select(s => $"--Parameters:{s.UrlParameter}={s.UrlFor(Mode)}")];
+  protected override void ConfigureBuilder(IDistributedApplicationTestingBuilder builder) {
+    // every third party's URL points at WireMock
+    foreach (var external in builder.Resources.OfType<ExternalServiceResource>())
+      builder.Configuration[$"Parameters:{external.UrlParameter!.Name}"] = Wiremock.Url;
+  }
+
+  // the inventory mocks tests set up
+  [ClassDataSource<ExampleServiceStub>(Shared = SharedType.PerTestSession)]
+  public required ExampleServiceStub Stub { get; init; }
 }
 ```
 
@@ -108,12 +107,12 @@ So the schema, the topic, the connection strings and the startup order are the s
 | | `aspire run` | `dotnet test` |
 | --- | --- | --- |
 | PostgreSQL, Kafka, schema, topic | AppHost | AppHost (same) |
-| API | AppHost | AppHost, or in-process, or a container ([see below](#where-the-api-runs)) |
-| Inventory service | stand-in, or a real URL | **WireMock**, stubbed per test |
+| API | AppHost: a project, or its image (`--ApiContainer true`) | AppHost, or in-process, or a container ([see below](#where-the-api-runs)) |
+| Inventory service | its URL: here the example `SomeService`, in a real API a test or stage environment | **WireMock**, stubbed per test |
 | Dashboard | Aspire's own | a reused test dashboard at `:18888` |
 
 > [!IMPORTANT]
-> If the AppHost declares an external service and `ApiFixture.Stubs` has no stub for it, the session stops before the first test.
+> In the tests every external service points at WireMock, whatever the configuration says, so a real URL in your user secrets is never called. An external service with a fixed URL (no parameter) can't be faked, so it stops the session before the first test.
 
 ---
 
@@ -213,11 +212,11 @@ When a test fails, you don't guess. Open its trace and you see which step went w
 
 ## Where the API runs
 
-One switch, same tests:
+One switch, same tests: `ApiHost` in `Tests/appsettings.json` (easy to flip in the IDE), or the `TESTS_API_HOST` environment variable, which wins over the file (CI, command line).
 
-| `TESTS_API_HOST` | The API runs as | Use it when |
+| `ApiHost` | The API runs as | Use it when |
 | --- | --- | --- |
-| *(unset)* or `Aspire` | a project launched by the AppHost, like `aspire run` | every day |
+| `Aspire` (default) | a project launched by the AppHost, like `aspire run` | every day |
 | `InProcess` | part of the test process (`WebApplicationFactory`) | you want breakpoints in the API |
 | `Container` | its published image, on Aspire's network | CI: test the image you ship |
 
@@ -234,11 +233,23 @@ All three get their configuration from the same AppHost model. `Fixtures/ApiHost
 
 Three small steps:
 
-1. **AppHost:** declare it as a URL. `builder.AddExternalService("payments", builder.AddParameter("payments-url"))`, with a stand-in for `aspire run` if you want one.
-2. **Stub:** `class PaymentsStub(WireMockFixture w) : ExternalServiceStub(w, "payments-url")`, with methods that read as intent: `Approve(...)` calls `DefineMock(...)`.
-3. **ApiFixture:** expose it and register it. `public PaymentsStub Payments => field ??= new(Wiremock);` and add `Payments` to `Stubs`, so tests read `App.Payments.Approve(...)`.
+1. **AppHost:** declare it as a URL, set per environment, and hand it to the API in `Wire` (so the project and the container both get it).
+   `.WithEnvironment("Payments__BaseUrl", builder.AddExternalService("payments", builder.AddParameter("payments-url")))`
+2. **Stub:** what every test gets, and the setups tests call. TUnit creates it and injects WireMock.
+   ```csharp
+   public class PaymentsStub : ExternalServiceStub
+   {
+     protected override Task Initialize() => Task.CompletedTask; // mocks every test gets, if any
+     public Task Approve(...) => DefineMock(...);                 // setups tests call
+   }
+   ```
+3. **ApiFixture:** inject it, so tests read `App.Payments.Approve(...)`.
+   ```csharp
+   [ClassDataSource<PaymentsStub>(Shared = SharedType.PerTestSession)]
+   public required PaymentsStub Payments { get; init; }
+   ```
 
-If the AppHost declares an external service with no stub, the session stops before the first test and names it.
+The tests never name its URL parameter: `ApiFixture` points every external service the AppHost declares at WireMock.
 
 ---
 
@@ -251,7 +262,7 @@ AppHost/
 Api/
   Program.cs                  POST /api/orders, /health
 SomeService/
-  Program.cs                  stand-in inventory service (aspire run only)
+  Program.cs                  example third party for aspire run (a real API calls an outside URL)
 Tests/
   OrderTests.cs               the tests
   ApiFixture.cs               the overlay: fakes, telemetry, where the API runs

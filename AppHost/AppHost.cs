@@ -1,5 +1,6 @@
 using Confluent.Kafka;
 using Confluent.Kafka.Admin;
+using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
@@ -21,21 +22,56 @@ var kafka = builder.AddKafka("kafka")
         }
     });
 
-var api = builder.AddDotnetProject("api", "../Api/Api.csproj")
-    .WithReference(ordersDb, "Database").WaitFor(ordersDb)
-    .WithEnvironment("Kafka__ConnectionString", kafka).WaitFor(kafka)
-    .WithHttpHealthCheck("/health");
+// What the API calls but doesn't own: just a URL, set per environment (Parameters:some-service-url - a test or stage
+// environment in a real API). The functional tests point it at WireMock.
+var someService = builder.AddExternalService("some-service", builder.AddParameter("some-service-url"));
 
-// What the API calls but doesn't own. In the real world it's just a URL (Parameters:some-service-url - set per
-// environment, and always set by the functional tests to their fake). Without one, a local stand-in runs instead.
-if (builder.Configuration["Parameters:some-service-url"] is not null)
+// Opt-in, docker-compose style: `aspire run -- --ApiContainer true` runs the API from its published image instead of as
+// a local process. The default stays a project; the functional tests re-host that one.
+if (builder.Configuration.GetValue<bool>("ApiContainer"))
 {
-    api.WithEnvironment("SomeService__BaseUrl", builder.AddExternalService("some-service", builder.AddParameter("some-service-url")));
+    Wire(
+        ApiContainer()
+            .WithHttpEndpoint(port: 5160, targetPort: 8080) // SDK images listen on 8080; 5160 as in launchSettings (CreateOrder.http)
+            .WithOtlpExporter()
+            // Kafka advertises a separate listener to containers; its connection string is the host one.
+            .WithEnvironment("Kafka__ConnectionString", ReferenceExpression.Create($"{kafka.Resource.InternalEndpoint.Property(EndpointProperty.HostAndPort)}"))
+    );
+
+    // Inside the container localhost is the container itself; this machine is behind the Docker host alias.
+    builder.Configuration["Parameters:some-service-url"] = builder.Configuration["Parameters:some-service-url"]?.Replace("//localhost:", "//host.docker.internal:");
 }
 else
 {
-    var standIn = builder.AddDotnetProject("some-service", "../SomeService/SomeService.csproj");
-    api.WithEnvironment("SomeService__BaseUrl", standIn.GetEndpoint("http")).WaitFor(standIn);
+    Wire(
+        builder
+            .AddDotnetProject("api", "../Api/Api.csproj")
+            .WithEnvironment("Kafka__ConnectionString", kafka)
+        );
 }
 
+// Example only. A real API's third party lives outside its solution (think youtube.com); this repo ships a small one
+// so `aspire run` has something to call. appsettings.json points some-service-url at it (port from its launchSettings).
+builder.AddDotnetProject("some-service-example", "../SomeService/SomeService.csproj");
+
 builder.Build().Run();
+
+return;
+
+// The API as a container, from an image built on every run. Here the .NET SDK builds it, no Dockerfile needed.
+// With a Dockerfile in Api/, Aspire builds and runs it itself instead: return builder.AddDockerfile("api", "../Api");
+IResourceBuilder<ContainerResource> ApiContainer()
+{
+    var publish = builder.AddExecutable("api-image", "dotnet", "../Api", "publish", "-t:PublishContainer", "-c", "Release");
+    return builder.AddContainer("api", "api", "latest").WaitForCompletion(publish); // image name the SDK derives from Api.csproj
+}
+
+// What the API connects to, wherever it runs.
+void Wire<T>(IResourceBuilder<T> api) where T : IResourceWithEnvironment, IResourceWithEndpoints, IResourceWithWaitSupport
+{
+    api
+        .WithReference(ordersDb, "Database").WaitFor(ordersDb)
+        .WaitFor(kafka)
+        .WithEnvironment("SomeService__BaseUrl", someService)
+        .WithHttpHealthCheck("/health");
+}

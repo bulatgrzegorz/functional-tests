@@ -25,10 +25,12 @@ dotnet test Tests/Tests.csproj --filter "Tests.OrderTests.Should_RejectOrder_Whe
 dotnet test Tests/Tests.csproj -v detailed
 
 # Choose where the API runs: Aspire (default) | InProcess (debugging) | Container (CI, published image)
+# Set ApiHost in Tests/appsettings.json, or TESTS_API_HOST, which overrides the file
 TESTS_API_HOST=Container dotnet test Tests/Tests.csproj
 
-# Run the app itself (SomeService stand-in as the third party; set Parameters:some-service-url for a real one)
+# Run the app itself (Parameters:some-service-url in AppHost/appsettings.json points at the example SomeService)
 dotnet run --project AppHost   # same as: aspire run --apphost AppHost/AppHost.csproj
+dotnet run --project AppHost -- --ApiContainer true   # API from its published image (dotnet publish -t:PublishContainer), not a process
 ```
 
 ### Building
@@ -104,15 +106,15 @@ dotnet build Tests/Tests.csproj
 ### Module Organization
 - **AppHost/**: Aspire AppHost - the single source of truth for the system
   - PostgreSQL + `ordersdb` (schema in `Database/orders.sql`), Kafka (+ `orders-topic` created on ResourceReady)
-  - Third-party APIs as `AddExternalService(name, <url parameter>)` when the URL is configured, otherwise a local stand-in project (`SomeService/`) - tests always configure the URL
+  - Third-party APIs as `AddExternalService(name, <name>-url parameter)`: a test/stage URL per environment, WireMock in the tests. `SomeService/` is an example third party only, started by the AppHost so `aspire run` has something to call (`AppHost/appsettings.json` points `some-service-url` at it); a real API has no such project
   - Binds resources to the API's config keys (`ConnectionStrings__Database`, `Kafka__ConnectionString`, `SomeService__BaseUrl`)
 - **Api/**: Minimal .NET API with POST `/api/orders` and `/health`
 - **Tests/**: Functional test suite, an overlay on the AppHost
-  - `ApiFixture.cs`: `AspireFixture<AppHost>` - only what differs in a test: a stub for every external service, dashboard OTLP, API host
+  - `ApiFixture.cs`: `AspireFixture<AppHost>` - only what differs in a test: every external service pointed at WireMock, dashboard OTLP, API host
   - `Fixtures/ApiHosts.cs`: re-hosts the AppHost's `api` in-process or as a container by replaying its environment callbacks
   - `Fixtures/`: WireMock and dashboard containers, `LocalAppFixture` (WebApplicationFactory), `TestsConfiguration`
   - `Clients/`: Typed HTTP clients for the API under test
-  - `Stubs/`: Domain-specific WireMock stubs, one `ExternalServiceStub` per third party
+  - `Stubs/`: Domain-specific WireMock stubs, one `ExternalServiceStub` per third party (`Initialize` + setups; TUnit injects WireMock)
   - `GlobalSetup.cs`: TUnit hooks - telemetry endpoint before discovery, test span naming/trimming
 
 ## Key Testing Architecture
@@ -120,8 +122,8 @@ dotnet build Tests/Tests.csproj
 ### Infrastructure Management
 - **Aspire** (via the AppHost) runs PostgreSQL, Kafka and the API; change infrastructure in `AppHost.cs`, not in the tests
 - **Testcontainers** run what the tests own: WireMock (fakes for third parties) and the reused Aspire Dashboard
-- **API hosts** (`TESTS_API_HOST`): `Aspire` launched like `aspire run`; `InProcess` via WebApplicationFactory; `Container` as the published image on Aspire's network
-- A new `AddExternalService` in the AppHost needs an `ExternalServiceStub` subclass (naming its URL parameter) registered in `ApiFixture.Stubs`, otherwise the test session fails fast
+- **API hosts** (`ApiHost` in `Tests/appsettings.json`, or `TESTS_API_HOST`): `Aspire` launched like `aspire run`; `InProcess` via WebApplicationFactory; `Container` as the published image on Aspire's network
+- A new third party needs no test wiring: `ApiFixture` points every `ExternalServiceResource` URL parameter at WireMock. Add an `ExternalServiceStub` for its mocks and inject it into `ApiFixture` with `ClassDataSource`. An external service with a fixed URL (no parameter) fails the session fast
 
 ### Parallel Test Isolation
 - Each test runs in its own trace (TUnit `test case` span)
@@ -129,8 +131,8 @@ dotnet build Tests/Tests.csproj
 - Fixtures use `Shared = SharedType.PerTestSession` to reuse expensive infrastructure
 
 ### Configuration
-- `TESTS_API_HOST` env var selects the API host (see `TestsConfiguration.cs`)
-- The API's configuration always comes from the AppHost model; tests only pass parameters (`--Parameters:<external>-url` as AppHost args) and `ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL`
+- `ApiHost` in `Tests/appsettings.json` selects the API host (read from the project folder, so no rebuild); the `TESTS_API_HOST` env var overrides it (see `TestsConfiguration.cs`)
+- The API's configuration always comes from the AppHost model; tests only set every external service URL parameter to WireMock and set `ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL`
 
 ---
 

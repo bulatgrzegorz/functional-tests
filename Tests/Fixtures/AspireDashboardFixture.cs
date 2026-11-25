@@ -14,7 +14,6 @@ public class AspireDashboardFixture : FixtureBase
 
     protected override async Task Initialize()
     {
-        // Same version as the AppHost's Aspire (the old dotnet/aspire-dashboard repo stops at 13.6)
         _container = new ContainerBuilder("mcr.microsoft.com/aspire/dashboard:17.0")
             .WithPortBinding(18888, 18888)
             .WithPortBinding(18889, 18889)

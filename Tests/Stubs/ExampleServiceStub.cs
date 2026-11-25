@@ -3,8 +3,10 @@ using Tests.Fixtures;
 
 namespace Tests.Stubs;
 
-public class ExampleServiceStub(WireMockFixture wireMock) : ExternalServiceStub(wireMock, "some-service-url")
+public class ExampleServiceStub : ExternalServiceStub
 {
+    protected override Task Initialize() => Task.CompletedTask;
+
     public Task SetupInventory(string sku, InventoryResponse response)
     {
         return DefineMock(new WireMockFixture.MockedRequest()
