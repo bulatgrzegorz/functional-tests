@@ -7,7 +7,7 @@ This file provides agentic coding agents with essential information about buildi
 ### .NET / MSBuild Setup
 - **.NET SDK Version**: net11.0
 - **Test Framework**: TUnit + TUnit.Aspire on top of the Aspire AppHost (PostgreSQL, Kafka); Testcontainers for WireMock and the dashboard
-- **Aspire**: 17.0 — the AppHost needs the matching Aspire CLI installed (DCP and dashboard come from the CLI bundle)
+- **Aspire**: 17.0 — DCP and the dashboard come from the Aspire CLI bundle; the AppHost build fetches it via `dnx aspire.cli` when `aspire` is not on PATH, so the CLI is optional
 - **Test Runner**: Microsoft.Testing.Platform
 
 ### Running Tests
@@ -28,7 +28,7 @@ dotnet test Tests/Tests.csproj -v detailed
 TESTS_API_HOST=Container dotnet test Tests/Tests.csproj
 
 # Run the app itself (SomeService stand-in as the third party; set Parameters:some-service-url for a real one)
-aspire run --apphost AppHost/AppHost.csproj
+dotnet run --project AppHost   # same as: aspire run --apphost AppHost/AppHost.csproj
 ```
 
 ### Building
@@ -108,11 +108,11 @@ dotnet build Tests/Tests.csproj
   - Binds resources to the API's config keys (`ConnectionStrings__Database`, `Kafka__ConnectionString`, `SomeService__BaseUrl`)
 - **Api/**: Minimal .NET API with POST `/api/orders` and `/health`
 - **Tests/**: Functional test suite, an overlay on the AppHost
-  - `ApiFixture.cs`: `AspireFixture<AppHost>` - only what differs in a test: fakes for every external service, dashboard OTLP, API host
+  - `ApiFixture.cs`: `AspireFixture<AppHost>` - only what differs in a test: a stub for every external service, dashboard OTLP, API host
   - `Fixtures/ApiHosts.cs`: re-hosts the AppHost's `api` in-process or as a container by replaying its environment callbacks
   - `Fixtures/`: WireMock and dashboard containers, `LocalAppFixture` (WebApplicationFactory), `TestsConfiguration`
   - `Clients/`: Typed HTTP clients for the API under test
-  - `Stubs/`: Domain-specific WireMock stub builders
+  - `Stubs/`: Domain-specific WireMock stubs, one `ExternalServiceStub` per third party
   - `GlobalSetup.cs`: TUnit hooks - telemetry endpoint before discovery, test span naming/trimming
 
 ## Key Testing Architecture
@@ -121,7 +121,7 @@ dotnet build Tests/Tests.csproj
 - **Aspire** (via the AppHost) runs PostgreSQL, Kafka and the API; change infrastructure in `AppHost.cs`, not in the tests
 - **Testcontainers** run what the tests own: WireMock (fakes for third parties) and the reused Aspire Dashboard
 - **API hosts** (`TESTS_API_HOST`): `Aspire` launched like `aspire run`; `InProcess` via WebApplicationFactory; `Container` as the published image on Aspire's network
-- A new `AddExternalService` in the AppHost needs a fake in `ApiFixture.Fakes` (keyed by its URL parameter, passed as AppHost args), otherwise the test session fails fast
+- A new `AddExternalService` in the AppHost needs an `ExternalServiceStub` subclass (naming its URL parameter) registered in `ApiFixture.Stubs`, otherwise the test session fails fast
 
 ### Parallel Test Isolation
 - Each test runs in its own trace (TUnit `test case` span)

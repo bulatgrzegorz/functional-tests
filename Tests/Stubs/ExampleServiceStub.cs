@@ -3,11 +3,11 @@ using Tests.Fixtures;
 
 namespace Tests.Stubs;
 
-public class ExampleServiceStub(WireMockFixture wireMock)
+public class ExampleServiceStub(WireMockFixture wireMock) : ExternalServiceStub(wireMock, "some-service-url")
 {
     public Task SetupInventory(string sku, InventoryResponse response)
     {
-        return wireMock.DefineMock(new WireMockFixture.MockedRequest()
+        return DefineMock(new WireMockFixture.MockedRequest()
             {
                 Method = WireMockFixture.Method.Get,
                 Path = $"/inventory/{sku}",
