@@ -1,7 +1,6 @@
-using System.Diagnostics;
-using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
+using Tests.Clients;
 
 namespace Tests.Fixtures;
 
@@ -14,27 +13,10 @@ public class LocalAppFixture(Dictionary<string, string> variables) : WebApplicat
     protected override IHost CreateHost(IHostBuilder builder)
     {
         foreach (var variable in variables) Environment.SetEnvironmentVariable(variable.Key, variable.Value);
-        
+
         return base.CreateHost(builder);
     }
 
-    public new HttpClient CreateClient()
-    {
-        return CreateDefaultClient(new TelemetryHandler());
-    }
-
-    private class TelemetryHandler : DelegatingHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            DistributedContextPropagator.Current.Inject(Activity.Current, request.Headers, (r, key, value) =>
-            {
-                if (r is not HttpRequestHeaders headers) return;
-
-                headers.TryAddWithoutValidation(key, value);
-            });
-            
-            return base.SendAsync(request, cancellationToken);
-        }
-    }
+    // The in-memory server has no HTTP span or traceparent of its own; ApiTracingHandler adds both.
+    public new HttpClient CreateClient() => CreateDefaultClient(new ApiTracingHandler());
 }

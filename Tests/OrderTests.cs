@@ -1,4 +1,5 @@
 using System.Net;
+using test_id_generator;
 
 namespace Tests;
 
@@ -12,9 +13,9 @@ public class OrderTests
   {
     var client = App.ApiClient();
 
-    var sku = "SKU-001";
+    var sku = IdGenerator.GetStringId();
     await App.InventoryStub.SetupInventory(sku, new InventoryResponse(50));
-    var response = await client.PostOrder("SKU-001", 100);
+    var response = await client.PostOrder(sku, 100);
 
     await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.UnprocessableEntity);
   }
@@ -25,7 +26,7 @@ public class OrderTests
     var client = App.ApiClient();
     using var kafka = App.KafkaClient("orders-topic");
 
-    var sku = "SKU-KAFKA-001";
+    var sku = IdGenerator.GetStringId();
     await App.InventoryStub.SetupInventory(sku, new InventoryResponse(100));
 
     var response = await client.PostOrder(sku, 25);

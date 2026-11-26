@@ -12,6 +12,7 @@
     <PackageReference Include="Confluent.Kafka" Version="2.16.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="11.0.0" />
     <PackageReference Include="Testcontainers" Version="4.16.0" /> <!-- 4.17.0 (and WireMock.Net.Testcontainers 2.32 needing it): WireMock container start never completes under Podman -->
+    <PackageReference Include="TestIdGenerator" Version="0.0.1" />
     <PackageReference Include="TUnit.Aspire" Version="1.87.12" />
     <PackageReference Include="WireMock.Net.Testcontainers" Version="2.30.0" />
   </ItemGroup>

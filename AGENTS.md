@@ -101,7 +101,8 @@ dotnet build Tests/Tests.csproj
 - Add instrumentation for: AspNetCore, Http, Kafka, Npgsql
 - The API takes OTLP endpoint/protocol/service name from `OTEL_*` env (`UseOtlpExporter()`); never hard-code them - Aspire and TUnit.Aspire set them per host
 - TUnit sets test span status and records exceptions itself; hooks run inside their own spans, so `Activity.Current` in a hook is the hook span
-- In-process API stays on `WebApplicationFactory<T>` + `TelemetryHandler` for trace propagation (TUnit 1.83's `TestWebApplicationFactory<T>` hung when parallel tests made their first call together)
+- Every test call to the API goes through `Clients/ApiTracingHandler` (all three API hosts): one client span per call (source `Tests.Api`, added with `TUnitOpenTelemetry.Configure` in `GlobalSetup.cs`) with the request and response bodies, and the `traceparent` header. .NET's own HttpClient span is off for that client (`ActivityHeadersPropagator = null`), so there is one span per call. Tests need no code for it
+- In-process API stays on `WebApplicationFactory<T>` (TUnit 1.83's `TestWebApplicationFactory<T>` hung when parallel tests made their first call together)
 
 ### Module Organization
 - **AppHost/**: Aspire AppHost - the single source of truth for the system
@@ -132,6 +133,7 @@ dotnet build Tests/Tests.csproj
 
 ### Configuration
 - `ApiHost` in `Tests/appsettings.json` selects the API host (read from the project folder, so no rebuild); the `TESTS_API_HOST` env var overrides it (see `TestsConfiguration.cs`)
+- `TraceBodies` (default `true`) puts request and response bodies on the API call spans; `TESTS_TRACE_BODIES` overrides it
 - The API's configuration always comes from the AppHost model; tests only set every external service URL parameter to WireMock and set `ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL`
 
 ---

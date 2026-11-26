@@ -68,9 +68,19 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
 
       _kafkaBootstrapServers = (await GetConnectionStringAsync("kafka"))!;
 
-      if (Mode == ApiHost.InProcess) _inProcessApi = new LocalAppFixture(await ApiHosts.InProcessEnvironmentAsync(_api, App));
-
-      _createHttpClient = Mode == ApiHost.InProcess ? () => _inProcessApi!.CreateClient() : () => CreateHttpClient("api");
+      if (Mode == ApiHost.InProcess)
+      {
+        _inProcessApi = new LocalAppFixture(await ApiHosts.InProcessEnvironmentAsync(_api, App));
+        _createHttpClient = _inProcessApi.CreateClient;
+      }
+      else
+      {
+        // Not CreateHttpClient("api"), whose factory Aspire's health checks share. ApiTracingHandler makes the call's span
+        // and sends its traceparent, so .NET's own (a second span per call) is off: ActivityHeadersPropagator = null.
+        var handler = new ApiTracingHandler { InnerHandler = new SocketsHttpHandler { ActivityHeadersPropagator = null } };
+        var url = App.GetEndpoint("api");
+        _createHttpClient = () => new HttpClient(handler, disposeHandler: false) { BaseAddress = url };
+      }
     }
   }
 

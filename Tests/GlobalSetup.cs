@@ -1,4 +1,6 @@
+using Tests.Clients;
 using Tests.Fixtures;
+using TUnit.OpenTelemetry;
 
 namespace Tests;
 
@@ -14,6 +16,8 @@ public static class GlobalHooks
         Environment.SetEnvironmentVariable("OTEL_SERVICE_NAME", "functional-tests");
         // TUnit's HTML report listens to every ActivitySource, which makes the auto-start step aside without this
         Environment.SetEnvironmentVariable("TUNIT_OTEL_AUTOSTART", "1");
+        // The tests' API calls are spans of their own (ApiTracingHandler); TUnit exports only the sources it is given.
+        TUnitOpenTelemetry.Configure(tracing => tracing.AddSource(ApiTracingHandler.Source.Name));
     }
 
     [BeforeEvery(Test)]
