@@ -204,6 +204,7 @@ Should_PublishKafkaMessage_When_OrderIsCreated   ██████████�
 
 When a test fails, you don't guess. Open its trace and you see which step went wrong: the stub that never matched, the insert that threw, the message that never left.
 
+- Every call a test makes to the API is a span with its request and response bodies, with no code in the test. `TraceBodies: false` in `Tests/appsettings.json` (or `TESTS_TRACE_BODIES=false`) leaves the bodies out.
 - Traces from earlier runs stay, because the dashboard container is reused.
 - TUnit's HTML report (`TestResults/*-report.html`) includes the API's spans too.
 - OTLP endpoints: `18889` (gRPC), `18890` (HTTP).

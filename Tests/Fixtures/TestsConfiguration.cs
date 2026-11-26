@@ -18,4 +18,8 @@ public static class TestsConfiguration
     // appsettings.json for the IDE; TESTS_API_HOST wins over it for CI and the command line.
     public static ApiHost ApiHost { get; } = Enum.Parse<ApiHost>(
         Environment.GetEnvironmentVariable("TESTS_API_HOST") ?? Settings["ApiHost"] ?? nameof(ApiHost.Aspire), ignoreCase: true);
+
+    // Request and response bodies on the spans of the tests' API calls; TESTS_TRACE_BODIES wins over appsettings.json.
+    public static bool TraceBodies { get; } = bool.Parse(
+        Environment.GetEnvironmentVariable("TESTS_TRACE_BODIES") ?? Settings["TraceBodies"] ?? "true");
 }

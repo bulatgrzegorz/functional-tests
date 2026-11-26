@@ -75,10 +75,11 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
       }
       else
       {
-        // Not CreateHttpClient("api"): its handlers are the AppHost factory's, shared with Aspire's own calls (health checks).
-        var api = new ResponseRecorder { InnerHandler = new SocketsHttpHandler() };
-        var apiUrl = App.GetEndpoint("api");
-        _createHttpClient = () => new HttpClient(api, disposeHandler: false) { BaseAddress = apiUrl };
+        // Not CreateHttpClient("api"), whose factory Aspire's health checks share. ApiTracingHandler makes the call's span
+        // and sends its traceparent, so .NET's own (a second span per call) is off: ActivityHeadersPropagator = null.
+        var handler = new ApiTracingHandler { InnerHandler = new SocketsHttpHandler { ActivityHeadersPropagator = null } };
+        var url = App.GetEndpoint("api");
+        _createHttpClient = () => new HttpClient(handler, disposeHandler: false) { BaseAddress = url };
       }
     }
   }
