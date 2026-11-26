@@ -28,7 +28,7 @@ dotnet test Tests/Tests.csproj -v detailed
 # Set ApiHost in Tests/appsettings.json, or TESTS_API_HOST, which overrides the file
 TESTS_API_HOST=Container dotnet test Tests/Tests.csproj
 
-# Run the app itself (Parameters:some-service-url in AppHost/appsettings.json points at the example SomeService)
+# Run the app itself (Parameters:inventory-service-url in AppHost/appsettings.json points at the example InventoryService)
 dotnet run --project AppHost   # same as: aspire run --apphost AppHost/AppHost.csproj
 dotnet run --project AppHost -- --ApiContainer true   # API from its published image (dotnet publish -t:PublishContainer), not a process
 ```
@@ -75,7 +75,7 @@ dotnet build Tests/Tests.csproj
 ### Naming Conventions
 - **Test Methods**: `Should_<Expected>_When_<Condition>()` (e.g., `Should_RejectOrder_When_InventoryIsInsufficient`)
 - **Fixtures**: Suffix with `Fixture` (e.g., `ApiFixture`, `WireMockFixture`)
-- **Stubs**: Suffix with `Stub` (e.g., `ExampleServiceStub`)
+- **Stubs**: Suffix with `Stub` (e.g., `InventoryServiceStub`)
 - **Clients**: Suffix with `Client` (e.g., `ApiClient`)
 - **Configuration**: Singleton/static classes for configuration (e.g., `TestsConfiguration`)
 
@@ -106,12 +106,12 @@ dotnet build Tests/Tests.csproj
 ### Module Organization
 - **AppHost/**: Aspire AppHost - the single source of truth for the system
   - PostgreSQL + `ordersdb` (schema in `Database/orders.sql`), Kafka (+ `orders-topic` created on ResourceReady)
-  - Third-party APIs as `AddExternalService(name, <name>-url parameter)`: a test/stage URL per environment, WireMock in the tests. `SomeService/` is an example third party only, started by the AppHost so `aspire run` has something to call (`AppHost/appsettings.json` points `some-service-url` at it); a real API has no such project
-  - Binds resources to the API's config keys (`ConnectionStrings__Database`, `Kafka__ConnectionString`, `SomeService__BaseUrl`)
+  - Third-party APIs as `AddExternalService(name, <name>-url parameter)`: a test/stage URL per environment, WireMock in the tests. `InventoryService/` is an example third party only, started by the AppHost so `aspire run` has something to call (`AppHost/appsettings.json` points `inventory-service-url` at it); a real API has no such project
+  - Binds resources to the API's config keys (`ConnectionStrings__Database`, `Kafka__ConnectionString`, `InventoryService__BaseUrl`)
 - **Api/**: Minimal .NET API with POST `/api/orders` and `/health`
 - **Tests/**: Functional test suite, an overlay on the AppHost
   - `ApiFixture.cs`: `AspireFixture<AppHost>` - only what differs in a test: every external service pointed at WireMock, dashboard OTLP, API host
-  - `Fixtures/ApiHosts.cs`: re-hosts the AppHost's `api` in-process or as a container by replaying its environment callbacks
+  - `Fixtures/ApiHosts.cs`: re-hosts the AppHost's `api` in-process by replaying its environment callbacks; Container mode passes `--ApiContainer=true` to the AppHost instead
   - `Fixtures/`: WireMock and dashboard containers, `LocalAppFixture` (WebApplicationFactory), `TestsConfiguration`
   - `Clients/`: Typed HTTP clients for the API under test
   - `Stubs/`: Domain-specific WireMock stubs, one `ExternalServiceStub` per third party (`Initialize` + setups; TUnit injects WireMock)

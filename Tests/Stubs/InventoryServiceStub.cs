@@ -3,7 +3,7 @@ using Tests.Fixtures;
 
 namespace Tests.Stubs;
 
-public class ExampleServiceStub : ExternalServiceStub
+public class InventoryServiceStub : ExternalServiceStub
 {
     protected override Task Initialize() => Task.CompletedTask;
 

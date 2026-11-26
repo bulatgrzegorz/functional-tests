@@ -22,12 +22,12 @@ var kafka = builder.AddKafka("kafka")
         }
     });
 
-// What the API calls but doesn't own: just a URL, set per environment (Parameters:some-service-url - a test or stage
+// What the API calls but doesn't own: just a URL, set per environment (Parameters:inventory-service-url - a test or stage
 // environment in a real API). The functional tests point it at WireMock.
-var someService = builder.AddExternalService("some-service", builder.AddParameter("some-service-url"));
+var inventoryService = builder.AddExternalService("inventory-service", builder.AddParameter("inventory-service-url"));
 
 // Opt-in, docker-compose style: `aspire run -- --ApiContainer true` runs the API from its published image instead of as
-// a local process. The default stays a project; the functional tests re-host that one.
+// a local process. The functional tests turn it on for their Container mode and re-host the project for InProcess.
 if (builder.Configuration.GetValue<bool>("ApiContainer"))
 {
     Wire(
@@ -39,7 +39,7 @@ if (builder.Configuration.GetValue<bool>("ApiContainer"))
     );
 
     // Inside the container localhost is the container itself; this machine is behind the Docker host alias.
-    builder.Configuration["Parameters:some-service-url"] = builder.Configuration["Parameters:some-service-url"]?.Replace("//localhost:", "//host.docker.internal:");
+    builder.Configuration["Parameters:inventory-service-url"] = builder.Configuration["Parameters:inventory-service-url"]?.Replace("//localhost:", "//host.docker.internal:");
 }
 else
 {
@@ -51,8 +51,8 @@ else
 }
 
 // Example only. A real API's third party lives outside its solution (think youtube.com); this repo ships a small one
-// so `aspire run` has something to call. appsettings.json points some-service-url at it (port from its launchSettings).
-builder.AddDotnetProject("some-service-example", "../SomeService/SomeService.csproj");
+// so `aspire run` has something to call. appsettings.json points inventory-service-url at it (port from its launchSettings).
+builder.AddDotnetProject("inventory-service-example", "../InventoryService/InventoryService.csproj");
 
 builder.Build().Run();
 
@@ -72,6 +72,6 @@ void Wire<T>(IResourceBuilder<T> api) where T : IResourceWithEnvironment, IResou
     api
         .WithReference(ordersDb, "Database").WaitFor(ordersDb)
         .WaitFor(kafka)
-        .WithEnvironment("SomeService__BaseUrl", someService)
+        .WithEnvironment("InventoryService__BaseUrl", inventoryService)
         .WithHttpHealthCheck("/health");
 }

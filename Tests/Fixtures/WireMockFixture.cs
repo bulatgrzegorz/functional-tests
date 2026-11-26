@@ -9,10 +9,12 @@ namespace Tests.Fixtures;
 public class WireMockFixture : FixtureBase
 {
     private WireMockContainer _container = null!;
-    public string Url => _container.GetPublicUrl().TrimEnd('/');
+    public string UrlForApi => ApiFixture.Mode == ApiHost.Container ? UrlForContainers : Url;
+    
+    private string Url => _container.GetPublicUrl().TrimEnd('/');
     // Containers on Aspire's network reach the host-published port through the Docker host alias.
-    public string UrlForContainers => new UriBuilder(Url) { Host = "host.docker.internal" }.Uri.ToString().TrimEnd('/');
-
+    private string UrlForContainers => new UriBuilder(Url) { Host = "host.docker.internal" }.Uri.ToString().TrimEnd('/');
+    
     protected override async Task Initialize()
     {
         _container = new WireMockContainerBuilder().Build();

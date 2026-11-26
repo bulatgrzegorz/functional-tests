@@ -38,7 +38,7 @@ dotnet run --project AppHost -- --ApiContainer true   # or: aspire run --apphost
 
 On every run the AppHost first builds the image (`dotnet publish -t:PublishContainer`, no Dockerfile needed) and then starts it on the same `localhost:5160`. If you have a Dockerfile, replace the body of `ApiContainer()` in `AppHost.cs` with `builder.AddDockerfile("api", "../Api")`.
 
-The inventory service is a third party, so the API only knows its URL (`Parameters:some-service-url`). In a real API that is a test or stage environment. Here it points at `SomeService/`, a small example service the AppHost also starts, so `aspire run` works on a laptop. It reports 100 for `SKU-001`, 0 for `SKU-002` and 5 for anything else.
+The inventory service is a third party, so the API only knows its URL (`Parameters:inventory-service-url`). In a real API that is a test or stage environment. Here it points at `InventoryService/`, a small example service the AppHost also starts, so `aspire run` works on a laptop. It reports 100 for `SKU-001`, 0 for `SKU-002` and 5 for anything else.
 
 ---
 
@@ -62,7 +62,7 @@ The inventory service is a third party, so the API only knows its URL (`Paramete
 flowchart LR
   run(["aspire run"]) --> host
   test(["dotnet test"]) --> overlay["ApiFixture<br/><i>the test overlay</i>"] --> host
-  host["<b>AppHost.cs</b><br/>postgres · kafka · api · some-service"]
+  host["<b>AppHost.cs</b><br/>postgres · kafka · api · inventory-service"]
 ```
 
 ```csharp
@@ -70,8 +70,8 @@ flowchart LR
 var ordersDb = builder.AddPostgres("postgres").WithInitFiles("./Database").AddDatabase("ordersdb");
 var kafka    = builder.AddKafka("kafka");   // + creates orders-topic once ready
 
-// The third party is just a URL, set per environment (Parameters:some-service-url).
-var someService = builder.AddExternalService("some-service", builder.AddParameter("some-service-url"));
+// The third party is just a URL, set per environment (Parameters:inventory-service-url).
+var inventoryService = builder.AddExternalService("inventory-service", builder.AddParameter("inventory-service-url"));
 
 // The API: a project, or its image with --ApiContainer true. Wire gives it the same connections either way.
 Wire(builder.AddDotnetProject("api", "../Api/Api.csproj").WithEnvironment("Kafka__ConnectionString", kafka));
@@ -79,10 +79,10 @@ Wire(builder.AddDotnetProject("api", "../Api/Api.csproj").WithEnvironment("Kafka
 void Wire<T>(IResourceBuilder<T> api) => api
     .WithReference(ordersDb, "Database").WaitFor(ordersDb)
     .WaitFor(kafka)
-    .WithEnvironment("SomeService__BaseUrl", someService);
+    .WithEnvironment("InventoryService__BaseUrl", inventoryService);
 
-// Example only: a third party for `aspire run` to call (appsettings.json points some-service-url at it).
-builder.AddDotnetProject("some-service-example", "../SomeService/SomeService.csproj");
+// Example only: a third party for `aspire run` to call (appsettings.json points inventory-service-url at it).
+builder.AddDotnetProject("inventory-service-example", "../InventoryService/InventoryService.csproj");
 ```
 
 The tests don't rebuild any of this. `ApiFixture` only says **what is different in a test**:
@@ -97,8 +97,8 @@ public class ApiFixture : AspireFixture<AppHost> {
   }
 
   // the inventory mocks tests set up
-  [ClassDataSource<ExampleServiceStub>(Shared = SharedType.PerTestSession)]
-  public required ExampleServiceStub Stub { get; init; }
+  [ClassDataSource<InventoryServiceStub>(Shared = SharedType.PerTestSession)]
+  public required InventoryServiceStub InventoryStub { get; init; }
 }
 ```
 
@@ -108,7 +108,7 @@ So the schema, the topic, the connection strings and the startup order are the s
 | --- | --- | --- |
 | PostgreSQL, Kafka, schema, topic | AppHost | AppHost (same) |
 | API | AppHost: a project, or its image (`--ApiContainer true`) | AppHost, or in-process, or a container ([see below](#where-the-api-runs)) |
-| Inventory service | its URL: here the example `SomeService`, in a real API a test or stage environment | **WireMock**, stubbed per test |
+| Inventory service | its URL: here the example `InventoryService`, in a real API a test or stage environment | **WireMock**, stubbed per test |
 | Dashboard | Aspire's own | a reused test dashboard at `:18888` |
 
 > [!IMPORTANT]
@@ -171,7 +171,7 @@ public async Task Should_PublishKafkaMessage_When_OrderIsCreated()
   using var kafka = App.KafkaClient("orders-topic");
 
   var sku = "SKU-KAFKA-001";
-  await App.Stub.SetupInventory(sku, new InventoryResponse(100));
+  await App.InventoryStub.SetupInventory(sku, new InventoryResponse(100));
 
   var response = await client.PostOrder(sku, 25);
   await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
@@ -225,7 +225,7 @@ TESTS_API_HOST=InProcess dotnet test Tests/Tests.csproj
 TESTS_API_HOST=Container dotnet test Tests/Tests.csproj
 ```
 
-All three get their configuration from the same AppHost model. `Fixtures/ApiHosts.cs` reuses the AppHost's wiring for the in-process and container hosts.
+All three get their configuration from the same AppHost model. `Container` turns on the AppHost's own container mode (`--ApiContainer true`, the same one `aspire run` uses), and `Fixtures/ApiHosts.cs` reuses the AppHost's wiring for the in-process host.
 
 ---
 
@@ -261,14 +261,14 @@ AppHost/
   Database/orders.sql         schema, applied when postgres starts
 Api/
   Program.cs                  POST /api/orders, /health
-SomeService/
+InventoryService/
   Program.cs                  example third party for aspire run (a real API calls an outside URL)
 Tests/
   OrderTests.cs               the tests
   ApiFixture.cs               the overlay: fakes, telemetry, where the API runs
   GlobalSetup.cs              sends test spans to the dashboard and names them after the tests
   Clients/                    ApiClient (HTTP), KafkaClient (reads this test's messages)
-  Stubs/                      ExternalServiceStub base; ExampleServiceStub: inventory stubs
+  Stubs/                      ExternalServiceStub base; InventoryServiceStub: inventory stubs
   Fixtures/                   WireMock, dashboard, API hosts, WebApplicationFactory
 ```
 

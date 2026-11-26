@@ -23,13 +23,13 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
   [ClassDataSource<WireMockFixture>(Shared = SharedType.PerTestSession)]
   public required WireMockFixture Wiremock { get; init; }
 
-  [ClassDataSource<ExampleServiceStub>(Shared = SharedType.PerTestSession)]
-  public required ExampleServiceStub Stub { get; init; }
+  [ClassDataSource<InventoryServiceStub>(Shared = SharedType.PerTestSession)]
+  public required InventoryServiceStub InventoryStub { get; init; }
 
   public ApiClient ApiClient() => new(_createHttpClient());
   public KafkaClient KafkaClient(string topic) => new(_kafkaBootstrapServers, topic);
 
-  private static ApiHost Mode => TestsConfiguration.ApiHost;
+  public static ApiHost Mode => TestsConfiguration.ApiHost;
   private IResource _api = null!;
   private LocalAppFixture? _inProcessApi;
   private Func<HttpClient> _createHttpClient = null!;
@@ -37,27 +37,23 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
 
   protected override TimeSpan ResourceTimeout => TimeSpan.FromMinutes(3); // first run pulls images and builds the API
 
-  // In-process and container hosts replace the AppHost's project (TUnit also drops its children and edges to it).
-  protected override IEnumerable<string> ResourcesToRemove() => Mode == ApiHost.Aspire ? [] : ["api"];
+  // Container: the AppHost's own container mode (it builds the image and runs it). An arg, because the AppHost reads it
+  // while building the model, before ConfigureBuilder.
+  protected override string[] Args => Mode == ApiHost.Container ? ["--ApiContainer=true"] : [];
+
+  // api-image is a one-shot build that exits when done (TUnit counts that as failed); api waits for it, so that covers it.
+  protected override bool ShouldWaitForResource(IResource resource) => resource.Name != "api-image" && base.ShouldWaitForResource(resource);
+
+  // The in-process host replaces the AppHost's project (TUnit also drops its children and edges to it).
+  protected override IEnumerable<string> ResourcesToRemove() => Mode == ApiHost.InProcess ? ["api"] : [];
 
   protected override void ConfigureBuilder(IDistributedApplicationTestingBuilder builder)
   {
-    // 1. Every third party the AppHost declares resolves to WireMock, whatever the configuration says (e.g. a stage
-    //    URL in user secrets). Parameters are read lazily, so setting them here is in time.
-    var fake = Mode == ApiHost.Container ? Wiremock.UrlForContainers : Wiremock.Url;
-    foreach (var external in builder.Resources.OfType<ExternalServiceResource>())
-    {
-      var parameter = external.UrlParameter
-        ?? throw new InvalidOperationException($"External service '{external.Name}' has a fixed URL the tests can't fake; give it a URL parameter.");
-      builder.Configuration[$"Parameters:{parameter.Name}"] = fake;
-    }
-
-    // 2. Where Aspire points the API's OTLP exporter (in-process and container hosts export straight there).
+    ConfigureExternalServicesAddresses(builder);
+    
     builder.Configuration["ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL"] = AspireDashboardFixture.OtlpGrpcEndpoint;
-
-    // 3. Where the API runs.
+    
     _api = builder.Resources.Single(r => r.Name == "api");
-    if (Mode == ApiHost.Container) ApiHosts.AddContainer(builder, _api);
 
     // Health checks fail by design while containers boot; TUnit reports any resource that never becomes healthy.
     builder.Services.AddLogging(logging => logging.AddFilter("Microsoft.Extensions.Diagnostics.HealthChecks", LogLevel.None));
@@ -68,20 +64,13 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
     // Keep Aspire's own HTTP traffic (DCP, health checks, OTLP forwarding) out of the test traces.
     using (SuppressInstrumentationScope.Begin())
     {
-      if (Mode == ApiHost.Container) await ApiHosts.PublishImageAsync();
-
       await base.InitializeAsync();
 
       _kafkaBootstrapServers = (await GetConnectionStringAsync("kafka"))!;
 
       if (Mode == ApiHost.InProcess) _inProcessApi = new LocalAppFixture(await ApiHosts.InProcessEnvironmentAsync(_api, App));
 
-      _createHttpClient = Mode switch
-      {
-        ApiHost.InProcess => () => _inProcessApi!.CreateClient(),
-        ApiHost.Container => () => CreateHttpClient(ApiHosts.ContainerName),
-        _ => () => CreateHttpClient("api"),
-      };
+      _createHttpClient = Mode == ApiHost.InProcess ? () => _inProcessApi!.CreateClient() : () => CreateHttpClient("api");
     }
   }
 
@@ -89,5 +78,14 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
   {
     if (_inProcessApi is not null) await _inProcessApi.DisposeAsync();
     await base.DisposeAsync();
+  }
+  
+  private void ConfigureExternalServicesAddresses(IDistributedApplicationTestingBuilder builder)
+  {
+    foreach (var external in builder.Resources.OfType<ExternalServiceResource>())
+    {
+      var parameter = external.UrlParameter ?? throw new InvalidOperationException($"External service '{external.Name}' has a fixed URL the tests can't fake; give it a URL parameter.");
+      builder.Configuration[$"Parameters:{parameter.Name}"] = Wiremock.UrlForApi;
+    }
   }
 }

@@ -13,7 +13,7 @@ public class OrderTests
     var client = App.ApiClient();
 
     var sku = "SKU-001";
-    await App.Stub.SetupInventory(sku, new InventoryResponse(50));
+    await App.InventoryStub.SetupInventory(sku, new InventoryResponse(50));
     var response = await client.PostOrder("SKU-001", 100);
 
     await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.UnprocessableEntity);
@@ -26,7 +26,7 @@ public class OrderTests
     using var kafka = App.KafkaClient("orders-topic");
 
     var sku = "SKU-KAFKA-001";
-    await App.Stub.SetupInventory(sku, new InventoryResponse(100));
+    await App.InventoryStub.SetupInventory(sku, new InventoryResponse(100));
 
     var response = await client.PostOrder(sku, 25);
     await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);

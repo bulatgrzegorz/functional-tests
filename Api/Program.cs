@@ -36,9 +36,9 @@ var kafkaConnectionString = builder.Configuration.GetValue<string>("Kafka:Connec
 var producerConfig = new ProducerConfig { BootstrapServers = kafkaConnectionString };
 builder.Services.AddSingleton(new ProducerBuilder<Null, OrderCreated>(producerConfig).SetValueSerializer(Json<OrderCreated>.Create()).BuildWithInstrumentation());
 
-// Configure HttpClient for SomeService
-var someServiceUrl = builder.Configuration.GetValue<string>("SomeService:BaseUrl")!;
-builder.Services.AddHttpClient("SomeService", client => { client.BaseAddress = new Uri(someServiceUrl); });
+// Configure HttpClient for InventoryService
+var inventoryServiceUrl = builder.Configuration.GetValue<string>("InventoryService:BaseUrl")!;
+builder.Services.AddHttpClient("InventoryService", client => { client.BaseAddress = new Uri(inventoryServiceUrl); });
 
 var app = builder.Build();
 
@@ -55,7 +55,7 @@ app.MapPost("/api/orders", async (
     [FromServices] IProducer<Null, OrderCreated> kafka,
     [FromServices] IHttpClientFactory httpClientFactory) =>
 {
-    var client = httpClientFactory.CreateClient("SomeService");
+    var client = httpClientFactory.CreateClient("InventoryService");
     var response = await client.GetFromJsonAsync<InventoryResponse>($"/inventory/{request.Sku}");
     if (response is null || response.Inventory < request.Quantity)
     {
