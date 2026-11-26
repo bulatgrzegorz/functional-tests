@@ -133,7 +133,7 @@ dotnet build Tests/Tests.csproj
 
 ### Configuration
 - `ApiHost` in `Tests/appsettings.json` selects the API host (read from the project folder, so no rebuild); the `TESTS_API_HOST` env var overrides it (see `TestsConfiguration.cs`)
-- `TraceBodies` (default `true`) puts request and response bodies on the API call spans; `TESTS_TRACE_BODIES` overrides it
+- `TraceBodies` (default `true`) puts request and response bodies on the API call spans (only `text/*` and JSON content types, cut at 16 KB; files, other binary bodies and bodies with a larger `Content-Length` are never read); `TESTS_TRACE_BODIES` overrides it
 - The API's configuration always comes from the AppHost model; tests only set every external service URL parameter to WireMock and set `ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL`
 
 ---
