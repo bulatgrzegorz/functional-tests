@@ -1,4 +1,6 @@
 using System.Net;
+using test_id_generator;
+using Tests.Clients;
 
 namespace Tests;
 
@@ -12,11 +14,11 @@ public class OrderTests
   {
     var client = App.ApiClient();
 
-    var sku = "SKU-001";
+    var sku = IdGenerator.GetStringId();
     await App.InventoryStub.SetupInventory(sku, new InventoryResponse(50));
-    var response = await client.PostOrder("SKU-001", 100);
+    var response = await client.PostOrder(sku, 100);
 
-    await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.UnprocessableEntity);
+    await response.ShouldHaveStatus(HttpStatusCode.UnprocessableEntity);
   }
 
   [Test]
@@ -25,11 +27,11 @@ public class OrderTests
     var client = App.ApiClient();
     using var kafka = App.KafkaClient("orders-topic");
 
-    var sku = "SKU-KAFKA-001";
+    var sku = IdGenerator.GetStringId();
     await App.InventoryStub.SetupInventory(sku, new InventoryResponse(100));
 
     var response = await client.PostOrder(sku, 25);
-    await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
+    await response.ShouldHaveStatus(HttpStatusCode.OK);
 
     var hasMessage = kafka.ConsumeForCurrentTrace(TimeSpan.FromSeconds(10), out var receivedMessage);
 
