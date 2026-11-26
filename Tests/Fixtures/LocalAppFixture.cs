@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
+using Tests.Clients;
 
 namespace Tests.Fixtures;
 
@@ -20,7 +21,7 @@ public class LocalAppFixture(Dictionary<string, string> variables) : WebApplicat
 
     public new HttpClient CreateClient()
     {
-        return CreateDefaultClient(new TelemetryHandler());
+        return CreateDefaultClient(new ResponseRecorder(), new TelemetryHandler());
     }
 
     private class TelemetryHandler : DelegatingHandler

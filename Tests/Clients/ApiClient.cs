@@ -1,4 +1,4 @@
-using System.Net;
+using System.Diagnostics;
 using System.Net.Http.Json;
 
 namespace Tests.Clients;
@@ -8,13 +8,18 @@ public class ApiClient(HttpClient client)
     public Task<HttpResponseMessage> PostOrder(string sku, int quantity) => client.PostAsJsonAsync("/api/orders", new { Sku = sku, Quantity = quantity });
 }
 
-public static class ApiResponseAssertions
+// Every API response becomes an event on the test's span, so its body is in the trace however the test checks it.
+// shortcut: reads the whole body, so a streamed response (SSE) would only be recorded at its end; skip those when the API has one.
+public class ResponseRecorder : DelegatingHandler
 {
-    extension(HttpResponseMessage response)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        // The status alone rarely says why a call failed; the body (an error message, a stack trace) usually does.
-        public async Task ShouldHaveStatus(HttpStatusCode expected) =>
-            await Assert.That(response.StatusCode).IsEqualTo(expected)
-                .Because($"the response body was: {await response.Content.ReadAsStringAsync()}");
+        var response = await base.SendAsync(request, cancellationToken);
+        Activity.Current?.AddEvent(new ActivityEvent($"{request.Method} {request.RequestUri?.PathAndQuery} {(int)response.StatusCode}", tags: new ActivityTagsCollection
+        {
+            ["http.response.status_code"] = (int)response.StatusCode,
+            ["http.response.body"] = await response.Content.ReadAsStringAsync(cancellationToken),
+        }));
+        return response;
     }
 }

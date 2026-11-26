@@ -1,6 +1,5 @@
 using System.Net;
 using test_id_generator;
-using Tests.Clients;
 
 namespace Tests;
 
@@ -18,7 +17,7 @@ public class OrderTests
     await App.InventoryStub.SetupInventory(sku, new InventoryResponse(50));
     var response = await client.PostOrder(sku, 100);
 
-    await response.ShouldHaveStatus(HttpStatusCode.UnprocessableEntity);
+    await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.UnprocessableEntity);
   }
 
   [Test]
@@ -31,7 +30,7 @@ public class OrderTests
     await App.InventoryStub.SetupInventory(sku, new InventoryResponse(100));
 
     var response = await client.PostOrder(sku, 25);
-    await response.ShouldHaveStatus(HttpStatusCode.OK);
+    await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
 
     var hasMessage = kafka.ConsumeForCurrentTrace(TimeSpan.FromSeconds(10), out var receivedMessage);
 

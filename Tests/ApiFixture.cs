@@ -68,9 +68,18 @@ public class ApiFixture : AspireFixture<apphost::Projects.AppHost>
 
       _kafkaBootstrapServers = (await GetConnectionStringAsync("kafka"))!;
 
-      if (Mode == ApiHost.InProcess) _inProcessApi = new LocalAppFixture(await ApiHosts.InProcessEnvironmentAsync(_api, App));
-
-      _createHttpClient = Mode == ApiHost.InProcess ? () => _inProcessApi!.CreateClient() : () => CreateHttpClient("api");
+      if (Mode == ApiHost.InProcess)
+      {
+        _inProcessApi = new LocalAppFixture(await ApiHosts.InProcessEnvironmentAsync(_api, App));
+        _createHttpClient = _inProcessApi.CreateClient;
+      }
+      else
+      {
+        // Not CreateHttpClient("api"): its handlers are the AppHost factory's, shared with Aspire's own calls (health checks).
+        var api = new ResponseRecorder { InnerHandler = new SocketsHttpHandler() };
+        var apiUrl = App.GetEndpoint("api");
+        _createHttpClient = () => new HttpClient(api, disposeHandler: false) { BaseAddress = apiUrl };
+      }
     }
   }
 
